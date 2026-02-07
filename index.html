@@ -5,87 +5,151 @@
     <title>BizTask Pro</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     
     <style>
         :root { --primary-color: #2563eb; --bg-color: #f1f5f9; }
         * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
-            background: var(--bg-color); padding: 20px; color: #334155; margin: 0; 
-        }
-
+        body { font-family: -apple-system, sans-serif; background: var(--bg-color); padding: 20px; margin: 0; }
         .container { max-width: 500px; margin: auto; }
-        h2 { text-align: center; margin-bottom: 20px; font-weight: 800; }
-
-        .card { background: white; padding: 20px; border-radius: 16px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .card { background: white; padding: 20px; border-radius: 16px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
         .input-group { display: flex; flex-direction: column; gap: 12px; }
         
-        input[type="text"] { padding: 14px; border-radius: 10px; border: 1px solid #e2e8f0; font-size: 16px; width: 100%; background: #f8fafc; }
-
-        /* iPhoneでも確実に反応するカレンダー入力欄 */
-        .date-input-container {
-            position: relative;
-            width: 100%;
-            height: 50px;
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            padding: 0 14px;
+        /* 1. 標準的な入力欄にして、Safariに正しく認識させる */
+        input[type="text"], input[type="date"] { 
+            width: 100%; padding: 14px; border-radius: 10px; border: 1px solid #e2e8f0; 
+            font-size: 16px; background: #f8fafc; color: #1e293b;
+            -webkit-appearance: none; /* iPhone独自のスタイルをリセット */
         }
-
-        #dateInput {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            opacity: 0; /* 見えないけどそこに「ある」状態にする */
-            font-size: 16px; /* iPhoneのズーム防止 */
-            z-index: 2;
-        }
-
-        .date-display {
-            display: flex;
-            justify-content: space-between;
-            width: 100%;
-            font-size: 16px;
-            color: #94a3b8;
-            pointer-events: none; /* 下の入力を邪魔しない */
-        }
+        
+        /* ラベル（説明）をつけて使いやすくする */
+        label { font-size: 12px; color: #64748b; font-weight: bold; margin-bottom: -8px; margin-left: 4px; }
 
         button.add-btn { 
             padding: 16px; border-radius: 10px; background: var(--primary-color); color: white; 
             border: none; font-weight: bold; font-size: 16px; margin-top: 5px;
         }
 
-        /* リスト部分 */
-        ul { list-style: none; padding: 0; margin-top: 10px; }
+        ul { list-style: none; padding: 0; margin-top: 20px; }
         li { 
             background: white; padding: 16px; border-radius: 12px; margin-bottom: 10px; 
             display: flex; justify-content: space-between; align-items: center;
             box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-            touch-action: none;
         }
         .handle { color: #cbd5e1; margin-right: 15px; font-size: 20px; }
-        .task-date { font-size: 12px; color: #64748b; font-weight: bold; margin-top: 4px; display: block; }
-        .delete-btn { background: #fff1f2; color: #e11d48; padding: 10px; border-radius: 8px; border: none; font-size: 12px; }
-        .dragging { opacity: 0.5; background: #e2e8f0; }
+        .task-date { font-size: 12px; color: #64748b; font-weight: bold; }
+        .delete-btn { background: #fff1f2; color: #e11d48; padding: 10px; border-radius: 8px; border: none; }
+        .dragging { opacity: 0.5; transform: scale(0.98); }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>BizTask Pro</h2>
+    <h2 style="text-align:center;">BizTask Pro</h2>
     
     <div class="card">
         <div class="input-group">
-            <input type="text" id="taskInput" placeholder="タスクを入力" autocomplete="off">
+            <label>タスク名</label>
+            <input type="text" id="taskInput" placeholder="例：資料作成" autocomplete="off">
             
-            <div class="date-input-container">
-                <input type="date" id="dateInput" onchange="handleDateChange()">
-                <div class="date-display">
-                    <span id="dateText">期限を選択</span>
-                    <span>📅
+            <label>期限日</label>
+            <input type="date" id="dateInput">
+            
+            <button class="add-btn" onclick="addTask()">タスクを追加</button>
+        </div>
+    </div>
+
+    <ul id="taskList"></ul>
+</div>
+
+<script>
+    const dayNames = ["日", "月", "火", "水", "木", "金", "土"];
+    const taskList = document.getElementById('taskList');
+
+    window.onload = () => {
+        const savedTasks = JSON.parse(localStorage.getItem('bizTasks')) || [];
+        savedTasks.forEach(task => renderTask(task));
+        initSortable();
+    };
+
+    function addTask() {
+        const textInput = document.getElementById('taskInput');
+        const dateInput = document.getElementById('dateInput');
+        
+        if (!textInput.value) return;
+
+        let displayDate = "期限なし";
+        if (dateInput.value) {
+            const d = new Date(dateInput.value);
+            // 3. 保存する時に「曜日」を計算してセットする
+            displayDate = `${dateInput.value.replace(/-/g, '/')} (${dayNames[d.getDay()]})`;
+        }
+
+        const newTask = { id: Date.now(), text: textInput.value, date: displayDate };
+        const tasks = JSON.parse(localStorage.getItem('bizTasks')) || [];
+        tasks.push(newTask);
+        localStorage.setItem('bizTasks', JSON.stringify(tasks));
+        
+        renderTask(newTask);
+        textInput.value = '';
+        dateInput.value = '';
+        textInput.blur();
+    }
+
+    function renderTask(task) {
+        const li = document.createElement('li');
+        li.setAttribute('data-id', task.id);
+        li.innerHTML = `
+            <div style="display:flex; align-items:center;">
+                <div class="handle">☰</div>
+                <div>
+                    <div style="font-weight:600;">${task.text}</div>
+                    <span class="task-date">📅 ${task.date}</span>
+                </div>
+            </div>
+            <button class="delete-btn" onclick="deleteTask(${task.id})">削除</button>
+        `;
+        taskList.appendChild(li);
+    }
+
+    function deleteTask(id) {
+        const tasks = JSON.parse(localStorage.getItem('bizTasks')).filter(t => t.id != id);
+        localStorage.setItem('bizTasks', JSON.stringify(tasks));
+        document.querySelector(`li[data-id="${id}"]`).remove();
+    }
+
+    // iPhone用ドラッグ＆ドロップ
+    function initSortable() {
+        let dragItem = null;
+        
+        taskList.addEventListener('touchstart', (e) => {
+            if (e.target.tagName === 'BUTTON') return;
+            dragItem = e.target.closest('li');
+            dragItem.classList.add('dragging');
+        }, { passive: false });
+
+        taskList.addEventListener('touchmove', (e) => {
+            if (!dragItem) return;
+            e.preventDefault();
+            const touchY = e.touches[0].clientY;
+            const elements = [...taskList.querySelectorAll('li:not(.dragging)')];
+            const nextElement = elements.find(el => {
+                const box = el.getBoundingClientRect();
+                return touchY < box.top + box.height / 2;
+            });
+            taskList.insertBefore(dragItem, nextElement);
+        }, { passive: false });
+
+        taskList.addEventListener('touchend', () => {
+            if (dragItem) {
+                dragItem.classList.remove('dragging');
+                const items = [...taskList.querySelectorAll('li')];
+                const oldTasks = JSON.parse(localStorage.getItem('bizTasks'));
+                const newTasks = items.map(item => oldTasks.find(t => t.id == item.dataset.id));
+                localStorage.setItem('bizTasks', JSON.stringify(newTasks));
+                dragItem = null;
+            }
+        });
+    }
+</script>
+</body>
+</html>
